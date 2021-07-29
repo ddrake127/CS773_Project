@@ -1,4 +1,6 @@
 import datetime
+import numpy as np
+import statistics
 
 FILE_CORRELATION_THRESHOLD = 0.5 # two users are considered to access the same group of files if 50% of their accesses are exactly the same
 
@@ -18,19 +20,25 @@ class User:
         self.max_chars_typed = 0
         self.total_cpu = 0
         self.max_cpu = 0
+        self.days_worked = [] # days of week worked. Monday = 0
+        self.times = []
+        for i in range(0, 7):
+            self.days_worked.append(0)
+        
     
     def inc_records(self):
         self.num_records += 1
         
     def inc_total_time(self, time):
         self.total_time += time
+        self.times.append(time)
         if time > self.longest_day:
             self.longest_day = time
 
     def inc_ave_proc(self, ave_proc):
         self.total_ave_proc += ave_proc
         
-    def inc_max_proc(self, max_proc):
+    def inc_max_proc(self, max_proc): 
         self.total_max_proc += max_proc
         if max_proc > self.max_proc:
             self.max_proc = max_proc
@@ -40,6 +48,7 @@ class User:
         
     def add_login(self, login):
         self.logins.append(login)
+        self.days_worked[login.weekday()] += 1
         
     def add_logout(self, logout):
         self.logouts.append(logout)
@@ -84,6 +93,29 @@ class Resource:
         self.printed += 1
     def incNumAccessRecord(self):
         self.accesses += 1
+
+class Email:
+    def __init__(self, uid):
+        self.user_id = uid
+        self.machines = []
+        self.start_times = []
+        self.email_programs = []
+        self.emails = [] # addresses; S/R
+        self.bytes = []
+        self.attachments = 0
+        self.count = 0
+    def addMachine(self, machine):
+        self.machines.append(machine)
+    def addStartTime(self, st):
+        self.start_times.append(st)
+    def addEmailProgram(self, prog):
+        self.email_programs.append(prog)
+    def addBytes(self, b):
+        self.bytes.append(b)
+    def incCount(self):
+        self.count += 1
+    def addEmail(self, em):
+        self.emails.append(em)
             
             
 def secondsToFormattedTime(time):
@@ -92,6 +124,35 @@ def secondsToFormattedTime(time):
     minutes = time // 60
     time -= minutes * 60
     return (str(int(hours)) + ":" + str(int(minutes)) + ":" + str(int(time)))
+
+def removeOutliers(data):
+    data.sort()
+    upper = []
+    lower = []
+    if len(data) % 2 == 0:
+        lower = data[:int(len(data) / 2)]
+        upper = data[int(len(data) / 2):]
+    else:
+        lower = data[:int(len(data) / 2)]
+        upper = data[int(len(data) / 2) + 1:]
+    q1 = statistics.median(lower)
+    q3 = statistics.median(upper)
+    iqr = q3-q1
+    lower = q1 - (iqr * 1.5)
+    upper = q3 + (iqr * 1.5)
+    ret_val = []
+    for d in data:
+        if d >= lower and d <= upper:
+            ret_val.append(d)
+    return ret_val
+    
+def normalize(data):
+    _max = max(data)
+    _min = min(data)
+    ret_val = []
+    for d in data:
+        ret_val.append((d - _min) / _max)
+    return ret_val
         
 def main():
     # file = open("Z:\CS 773 Data Mining\Project\sorted-proj-data.csv")
@@ -100,12 +161,15 @@ def main():
     
     type_one_users = []
     resources = []
+    emails = []
     for i in range(1, 10):
         type_one_users.append(User("U0"+str(i)))
         resources.append(Resource("U0"+str(i)))
+        emails.append(Email("U0"+str(i)))
     for i in range(10, 20):
         type_one_users.append(User("U"+str(i)))
         resources.append(Resource("U"+str(i)))
+        emails.append(Email("U"+str(i)))
 
     
 
@@ -140,7 +204,7 @@ def main():
             user.add_logout(end_time)
             user.inc_chars_typed(chars_typed)
             user.inc_cpu(cpu_use)
-        if parts[0] == '2':
+        elif parts[0] == '2':
             if "PR" in parts[9]:
                 uid = parts[1]
                 machine = parts[2]
@@ -195,15 +259,32 @@ def main():
                 resource.addDuration(total_dur_seconds)
                 resource.addProgram(program)
                 resource.addFile(fle + ":" + permissions)
-                
+        elif parts[0] == '3':
+            uid = parts[1]
+            machine = parts[2]
+            raw_date = parts[3]
+            raw_st = parts[4]
+            program = parts[5]
+            em = parts[6]
+            sent_rec = parts[7]
+            bites = parts[8] # since bytes is a reserved word
+            attachments = parts[9]
+            start_time = datetime.datetime(int(raw_date[4:]) + 2000, int(raw_date[0:2]), int(raw_date[2:4]),
+            int(raw_st[0:2]), int(raw_st[2:4]), int(raw_st[4:]))
 
-    print("Number of records:")
-    for user in type_one_users:
-        print(user.user_id + ": " + str(user.num_records))
+            email = emails[int(uid[1:]) - 1]
+            email.addMachine(machine)
+            email.addStartTime(start_time)
+            email.addEmailProgram(program)
+            email.addBytes(bites)
+            email.incCount()
+            email.addEmail(em + ":" + sent_rec)
+      
+                
         
     print("Average time worked:")
     for user in type_one_users:
-        print(user.user_id + ": " + secondsToFormattedTime(user.total_time / user.num_records))
+        print(user.user_id + ": " + secondsToFormattedTime(user.total_time / user.num_records) + ", " + str(secondsToFormattedTime(int(sum(removeOutliers(user.times)) / user.num_records))))
         
     print("Longest day:")
     for user in type_one_users:
@@ -256,24 +337,29 @@ def main():
     for user in type_one_users:
         s = 0
         stimes = 0
+        start_times_seconds = []
         for st in user.logins:
             tmpdt = datetime.datetime(st.year, st.month, st.day, 0, 0, 0)
-            diff = (st - tmpdt).total_seconds()
+            diff = (st - tmpdt).total_seconds() # gets the time without day, month or year attached
+            start_times_seconds.append(diff)
             stimes += diff
             s += 1
-        print(user.user_id + ": " + str(secondsToFormattedTime(stimes / s)))
+        
+        print(user.user_id + ": " + str(secondsToFormattedTime(stimes / s)) + ", " + str(secondsToFormattedTime(sum(start_times_seconds) / len(start_times_seconds))))
 
 
     print("Average end time:")
     for user in type_one_users:
         s = 0
         etimes = 0
+        end_times_seconds = []
         for et in user.logouts:
             tmpdt = tmpdt = datetime.datetime(et.year, et.month, et.day, 0, 0, 0)
             diff = (et - tmpdt).total_seconds()
+            end_times_seconds.append(diff)
             etimes += diff
             s += 1
-        print(user.user_id + ": " + str(secondsToFormattedTime(etimes / s)))
+        print(user.user_id + ": " + str(secondsToFormattedTime(etimes / s)) + ", " + str(secondsToFormattedTime(sum(end_times_seconds) / len(end_times_seconds))))
 
 
     print("File accesses and prints")
@@ -292,6 +378,17 @@ def main():
         print(r.user_id)
         print(files)
         file_accesses[r.user_id] = files
+
+    print("Days worked")
+    for user in type_one_users:
+        print(user.user_id + ":")
+        print("\t" + "Sunday: " + str(user.days_worked[6]))
+        print("\t" + "Monday: " + str(user.days_worked[0]))
+        print("\t" + "Tuesday: " + str(user.days_worked[1]))
+        print("\t" + "Wednesday: " + str(user.days_worked[2]))
+        print("\t" + "Thursday: " + str(user.days_worked[3]))
+        print("\t" + "Friday: " + str(user.days_worked[4]))
+        print("\t" + "Saturday: " + str(user.days_worked[5]))
 
     print("\n\n\n\n\n\n\n\nEnd of statistics...beginning of correlation\n\n\n")
     percent_similar_matrix = []
@@ -326,8 +423,11 @@ def main():
             user_number_inner += 1
         user_number_outer += 1
         print()
-            
-        
+    
+    print("Cluster based on login information")
+    
+    
+    
             
             
                  
