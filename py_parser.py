@@ -1,8 +1,9 @@
 import datetime
 import numpy as np
 import statistics
+import math
 
-FILE_CORRELATION_THRESHOLD = 0.5 # two users are considered to access the same group of files if 50% of their accesses are exactly the same
+FILE_CORRELATION_THRESHOLD = 0.5 # What percent similar two users need to be in order to be considered "similar"
 
 class User:
     def __init__(self, uid):
@@ -117,7 +118,11 @@ class Email:
     def addEmail(self, em):
         self.emails.append(em)
             
-            
+          
+          
+# ---------------------------------------------------------------------------------
+#       HELPER FUNCTIONS
+
 def secondsToFormattedTime(time):
     hours = time // 3600
     time -= hours * 3600
@@ -146,14 +151,89 @@ def removeOutliers(data):
             ret_val.append(d)
     return ret_val
     
-def normalize(data):
+# data is a list of integers
+def normalize_list(data):
     _max = max(data)
     _min = min(data)
     ret_val = []
     for d in data:
-        ret_val.append((d - _min) / _max)
+        ret_val.append((d - _min) / (_max - _min))
     return ret_val
-        
+    
+# data is a list of lists; normalize based on position in the second list
+# so if you have [a1,b1,c1] and [a2,b2,c2] where a, b, c are attributes,
+# all a's, b's and c's will be normalized seperately
+def normalize(data):
+    for i in range(len(data[0])):
+        values = []
+        for j in range(len(data)):
+            values.append(data[j][i])
+        values = normalize_list(values)
+        for j in range(len(data)):
+            data[j][i] = values[j]
+    return data
+    
+def distance(ref, values):
+    if len(ref) != len(values):
+        return -1
+    _sum = 0
+    for i in range(len(values)):
+        _sum += (ref[i] - values[i])**2
+    return math.sqrt(_sum)
+    
+    
+def centroid(points):
+    point = []
+    for i in range(len(points[0])):
+        val = 0
+        for j in range(len(points)):
+            val += points[j][i]
+        point.append(val / len(points))
+    return point
+
+# points are what we are trying to cluster, ref_points are what we are using as the starting centroids
+def k_meansCluster(points, ref_points):
+    num_groups = len(ref_points)
+    groups = []
+    for i in range(num_groups):
+        groups.append([])
+        groups[i].append(ref_points[i])
+    for p in points:
+        closest = ref_points[0]
+        for ref in ref_points:
+            if distance(ref, p) < distance(closest, p):
+                closest = ref
+        for g in groups:
+            if g[0] == closest:
+                g.append(p)
+    for g in groups:
+        if len(g) > 1:
+            g[0] = centroid(g[1:])
+    return groups
+def k_meansClusterFull(refs, points):
+    res = k_meansCluster(points, refs)
+    new_refs = []
+    for i in range(len(res)):
+        new_refs.append(res[i][0])
+    while refs != new_refs:
+        res = k_meansCluster(points, new_refs)
+        refs = new_refs
+        new_refs = []
+        for i in range(len(res)):
+            new_refs.append(res[i][0])
+    
+    # res now has the groups with the centroids
+    groups = []
+    for i in range(len(refs)):
+        groups.append([])
+    for i in range(len(points)):
+        for j in range(len(groups)):
+            if points[i] in res[j]:
+                groups[j].append("U" + str(i + 1))
+    return groups
+    
+# ---------------------------------------------------------------------------------
+    
 def main():
     # file = open("Z:\CS 773 Data Mining\Project\sorted-proj-data.csv")
     file = open("sorted-proj-data.csv")
@@ -283,34 +363,47 @@ def main():
                 
         
     print("Average time worked:")
+    average_time_worked = []
     for user in type_one_users:
-        print(user.user_id + ": " + secondsToFormattedTime(user.total_time / user.num_records) + ", " + str(secondsToFormattedTime(int(sum(removeOutliers(user.times)) / user.num_records))))
+        with_outliers = user.total_time / user.num_records
+        without_outliers = int(sum(removeOutliers(user.times)) / user.num_records)
+        average_time_worked.append(without_outliers)
+        print(user.user_id + ": " + secondsToFormattedTime(with_outliers) + ", " + str(secondsToFormattedTime(without_outliers)))
         
     print("Longest day:")
+    longest_day = []
     for user in type_one_users:
+        longest_day.append(user.longest_day)
         print(user.user_id + ": " + secondsToFormattedTime(user.longest_day))
 
     print("Average processes, average:")
+    average_processes = []
     for user in type_one_users:
+        # TODO: need to keep track of everything in a list so we can remove all outliers :(
         print(user.user_id + ": " + str(user.total_ave_proc / user.num_records))
 
     print("Max processes, average:")
+    max_processes = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.total_max_proc / user.num_records))
 
     print("Max processes, max:")
+    max_processes_max = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.max_proc))
 
     print("Average characters typed:")
+    chars_typed = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.total_chars_typed / user.num_records))
 
     print("Average CPU:")
+    average_cpu = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.total_cpu / user.num_records))
 
     print("Max CPU:")
+    max_cpu = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.max_cpu))
 
@@ -334,6 +427,7 @@ def main():
         print()
 
     print("Average start time:")
+    average_start_time = []
     for user in type_one_users:
         s = 0
         stimes = 0
@@ -344,11 +438,13 @@ def main():
             start_times_seconds.append(diff)
             stimes += diff
             s += 1
-        
-        print(user.user_id + ": " + str(secondsToFormattedTime(stimes / s)) + ", " + str(secondsToFormattedTime(sum(start_times_seconds) / len(start_times_seconds))))
+        l = removeOutliers(start_times_seconds)
+        average_start_time.append(int(sum(l) / len(l)))
+        print(user.user_id + ": " + str(secondsToFormattedTime(stimes / s)) + ", " + str(secondsToFormattedTime(sum(l) / len(l))))
 
 
     print("Average end time:")
+    average_end_time = []
     for user in type_one_users:
         s = 0
         etimes = 0
@@ -359,7 +455,9 @@ def main():
             end_times_seconds.append(diff)
             etimes += diff
             s += 1
-        print(user.user_id + ": " + str(secondsToFormattedTime(etimes / s)) + ", " + str(secondsToFormattedTime(sum(end_times_seconds) / len(end_times_seconds))))
+        l = removeOutliers(end_times_seconds)
+        average_end_time.append(int(sum(l) / len(l)))
+        print(user.user_id + ": " + str(secondsToFormattedTime(etimes / s)) + ", " + str(secondsToFormattedTime(sum(l) / len(l))))
 
 
     print("File accesses and prints")
@@ -424,7 +522,36 @@ def main():
         user_number_outer += 1
         print()
     
-    print("Cluster based on login information")
+    print("Cluster based on login information\n\n\n")
+    
+    points = []
+    for i in range(len(type_one_users)):
+        l = []
+        l.append(average_time_worked[i])
+        l.append(longest_day[i])
+        l.append(average_start_time[i])
+        l.append(average_end_time[i])
+        points.append(l)
+    points = normalize(points)
+    
+    print("k=2\n")
+    
+    refs = [[0,0,0,0],[1,1,1,1]]
+    print(k_meansClusterFull(refs, points))
+    
+    print("k=3\n")
+    refs = [[0,0,0,0],[.5,.5,.5,.5],[1,1,1,1]]
+    print(k_meansClusterFull(refs, points))
+    
+    print("k=4\n")
+    refs = [[0,0,0,0],[.3,.3,.3,.3],[.6,.6,.6,.6],[1,1,1,1]]
+    print(k_meansClusterFull(refs, points))
+    
+    print("k=5\n")
+    refs = [[0,0,0,0],[.25,.25,.25,.25],[.5,.5,.5,.5],[.75,.75,.75,.75],[1,1,1,1]]
+    print(k_meansClusterFull(refs, points))
+        
+    
     
     
     
