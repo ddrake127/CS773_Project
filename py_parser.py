@@ -2,8 +2,8 @@ import datetime
 import numpy as np
 import statistics
 import math
+import copy
 
-FILE_CORRELATION_THRESHOLD = 0.5 # What percent similar two users need to be in order to be considered "similar"
 
 class User:
     def __init__(self, uid):
@@ -12,14 +12,18 @@ class User:
         self.total_time = 0
         self.longest_day = 0
         self.total_ave_proc = 0
+        self.ave_procs = []
         self.max_proc = 0
+        self.max_proc_l = []
         self.total_max_proc = 0
         self.machines = []
         self.logins = []
         self.logouts = []
         self.total_chars_typed = 0
+        self.chars_typed = []
         self.max_chars_typed = 0
         self.total_cpu = 0
+        self.cpus = []
         self.max_cpu = 0
         self.days_worked = [] # days of week worked. Monday = 0
         self.times = []
@@ -37,10 +41,12 @@ class User:
             self.longest_day = time
 
     def inc_ave_proc(self, ave_proc):
+        self.ave_procs.append(ave_proc)
         self.total_ave_proc += ave_proc
         
     def inc_max_proc(self, max_proc): 
         self.total_max_proc += max_proc
+        self.max_proc_l.append(max_proc)
         if max_proc > self.max_proc:
             self.max_proc = max_proc
     
@@ -55,11 +61,13 @@ class User:
         self.logouts.append(logout)
         
     def inc_chars_typed(self, chars_typed):
+        self.chars_typed.append(chars_typed)
         self.total_chars_typed += chars_typed
         if chars_typed > self.max_chars_typed:
             self.max_chars_typed = chars_typed
             
     def inc_cpu(self, cpu):
+        self.cpus.append(cpu)
         self.total_cpu += cpu
         if cpu > self.max_cpu:
             self.max_cpu = cpu
@@ -232,6 +240,11 @@ def k_meansClusterFull(refs, points):
                 groups[j].append("U" + str(i + 1))
     return groups
     
+def rm_dup(lst):
+    res = []
+    [res.append(x) for x in lst if x not in res]
+    return res
+    
 # ---------------------------------------------------------------------------------
     
 def main():
@@ -377,33 +390,30 @@ def main():
         print(user.user_id + ": " + secondsToFormattedTime(user.longest_day))
 
     print("Average processes, average:")
-    average_processes = []
     for user in type_one_users:
-        # TODO: need to keep track of everything in a list so we can remove all outliers :(
-        print(user.user_id + ": " + str(user.total_ave_proc / user.num_records))
+        without_outliers = sum(removeOutliers(user.ave_procs)) / len(removeOutliers(user.ave_procs))
+        print(user.user_id + ": " + str(user.total_ave_proc / user.num_records) + ", " + str(without_outliers))
 
     print("Max processes, average:")
-    max_processes = []
     for user in type_one_users:
-        print(user.user_id + ": " + str(user.total_max_proc / user.num_records))
+        without_outliers = sum(removeOutliers(user.max_proc_l)) / len(removeOutliers(user.max_proc_l))
+        print(user.user_id + ": " + str(user.total_max_proc / user.num_records) + ", " + str(without_outliers))
 
     print("Max processes, max:")
-    max_processes_max = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.max_proc))
 
     print("Average characters typed:")
-    chars_typed = []
     for user in type_one_users:
-        print(user.user_id + ": " + str(user.total_chars_typed / user.num_records))
+        without_outliers = sum(removeOutliers(user.chars_typed)) / len(removeOutliers(user.chars_typed))
+        print(user.user_id + ": " + str(user.total_chars_typed / user.num_records) + ", " + str(without_outliers))
 
     print("Average CPU:")
-    average_cpu = []
     for user in type_one_users:
-        print(user.user_id + ": " + str(user.total_cpu / user.num_records))
+        without_outliers = sum(removeOutliers(user.cpus)) / len(removeOutliers(user.cpus))
+        print(user.user_id + ": " + str(user.total_cpu / user.num_records) + ", " + str(without_outliers))
 
     print("Max CPU:")
-    max_cpu = []
     for user in type_one_users:
         print(user.user_id + ": " + str(user.max_cpu))
 
@@ -487,40 +497,14 @@ def main():
         print("\t" + "Thursday: " + str(user.days_worked[3]))
         print("\t" + "Friday: " + str(user.days_worked[4]))
         print("\t" + "Saturday: " + str(user.days_worked[5]))
+        
+    print("\n\nAverage pages printed, per user")
+    pages_printed = []
+    [pages_printed.append([x.split(':')[1] for x in r.printers]) for r in resources]
+    [print(str(sum([int(x) for x in p]) / len(p)) + ", " + str(sum(removeOutliers([int(x) for x in p])) / len(removeOutliers([int(x) for x in p])))) for p in pages_printed]
 
-    print("\n\n\n\n\n\n\n\nEnd of statistics...beginning of correlation\n\n\n")
-    percent_similar_matrix = []
-    for files in file_accesses:
-        this_one = file_accesses[files] # dictionary of files to number of accesses
-        per_similars = []
-        this_num_records = resources[int(files[1:]) - 1].num_records
-        for f in file_accesses:
-            similar = 0
-            if files != f:
-                other_one = file_accesses[f] # dictionary of files to number of accesses
-                other_num_records = resources[int(f[1:]) - 1].num_records
-                for accesses in this_one:
-                    cnt = this_one[accesses]
-                    othercnt = 0 if accesses not in other_one else other_one[accesses]
-                    similar += min(cnt, othercnt)
-                per_similars.append(similar / max(this_num_records, other_num_records))
-            else:
-                per_similars.append(-1)
-        percent_similar_matrix.append(per_similars)
-    print("Percent Similar Matrix")
-    print(percent_similar_matrix)
-
-    groups = []
-    user_number_outer = 1
-    for user_list in percent_similar_matrix:
-        user_number_inner = 1
-        print("U" + str(user_number_outer) + ": ", end="")
-        for per in user_list:
-            if per > FILE_CORRELATION_THRESHOLD:
-                print("U" + str(user_number_inner), end = " ")
-            user_number_inner += 1
-        user_number_outer += 1
-        print()
+    print("\n\n\n\n\n\n\n\nEnd of statistics...beginning of correlation and clustering\n\n\n")
+    
     
     print("Cluster based on login information\n\n\n")
     
@@ -550,9 +534,102 @@ def main():
     print("k=5\n")
     refs = [[0,0,0,0],[.25,.25,.25,.25],[.5,.5,.5,.5],[.75,.75,.75,.75],[1,1,1,1]]
     print(k_meansClusterFull(refs, points))
+    
+    points = []
+    for u in type_one_users:
+        l = []
+        l.append(sum(removeOutliers(u.ave_procs)) / len(removeOutliers(u.ave_procs)))
+        l.append(sum(removeOutliers(u.max_proc_l)) / len(removeOutliers(u.max_proc_l)))
+        l.append(sum(removeOutliers(u.chars_typed)) / len(removeOutliers(u.chars_typed)))
+        l.append(sum(removeOutliers(u.cpus)) / len(removeOutliers(u.cpus)))
+        points.append(l)
+    print(points)
         
+    points = normalize(points)
+    
+    print("Cluster based on program access\n\n\n")
+    
+    refs = [[0,0,0,0],[1,1,1,1]]
+    print("k=2\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0,0],[.5,.5,.5,.5],[1,1,1,1]]
+    print("k=3\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0,0],[.3,.3,.3,.3],[.6,.6,.6,.6],[1,1,1,1]]
+    print("k=4\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0,0],[.25,.25,.25,.25],[.5,.5,.5,.5],[.75,.75,.75,.75],[1,1,1,1]]
+    print("k=5\n")
+    print(k_meansClusterFull(refs, points))
+    
+    FILE_CORRELATION_THRESHOLD = 0.5 
+    while FILE_CORRELATION_THRESHOLD <= 1:
+        percent_similar_matrix = []
+        for files in file_accesses:
+            this_one = file_accesses[files] # dictionary of files to number of accesses
+            per_similars = []
+            this_num_records = resources[int(files[1:]) - 1].num_records
+            for f in file_accesses:
+                similar = 0
+                if files != f:
+                    other_one = file_accesses[f] # dictionary of files to number of accesses
+                    other_num_records = resources[int(f[1:]) - 1].num_records
+                    for accesses in this_one:
+                        cnt = this_one[accesses]
+                        othercnt = 0 if accesses not in other_one else other_one[accesses]
+                        similar += min(cnt, othercnt)
+                    per_similars.append(similar / max(this_num_records, other_num_records))
+                else:
+                    per_similars.append(-1)
+            percent_similar_matrix.append(per_similars)
+        #print("Percent Similar Matrix")
+        #print(percent_similar_matrix)
+        print("Percent Similar: " + str(FILE_CORRELATION_THRESHOLD * 100) + "%")
+
+        groups = []
+        user_number_outer = 1
+        for user_list in percent_similar_matrix:
+            user_number_inner = 1
+            print("U" + str(user_number_outer) + ": ", end="")
+            for per in user_list:
+                if per > FILE_CORRELATION_THRESHOLD:
+                    print("U" + str(user_number_inner), end = " ")
+                user_number_inner += 1
+            user_number_outer += 1
+            print()
+        FILE_CORRELATION_THRESHOLD += .1
+        print()
+        
+    print("File accesses subsets")
+    print(file_accesses)
+    cnt = 1
+    for f in file_accesses:
+        print(f, end=": ")
+        dict1 = file_accesses[f]
+        for g in file_accesses:
+            dict2 = file_accesses[g]
+            if f != g:
+                subset = True
+                for key in dict1:
+                    if key not in dict2:
+                        subset = False
+                    if key in dict2 and dict1[key] != dict2[key]:
+                        subset = False
+                if subset:
+                    print(g, end = ", ")
+        print()
+
+    prnts = []
+    [prnts.append([x.split(':')[0] for x in r.printers]) for r in resources]
+    for i in range(len(prnts)):
+        prnts[i] = rm_dup(prnts[i])
+    [print(p) for p in prnts] # prints the printers each user used without duplicates
     
     
+        
     
     
             
