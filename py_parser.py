@@ -110,8 +110,8 @@ class Email:
         self.start_times = []
         self.email_programs = []
         self.emails = [] # addresses; S/R
-        self.bytes = []
-        self.attachments = 0
+        self.bites = []
+        self.attachments = []
         self.count = 0
     def addMachine(self, machine):
         self.machines.append(machine)
@@ -120,11 +120,13 @@ class Email:
     def addEmailProgram(self, prog):
         self.email_programs.append(prog)
     def addBytes(self, b):
-        self.bytes.append(b)
+        self.bites.append(b)
     def incCount(self):
         self.count += 1
     def addEmail(self, em):
         self.emails.append(em)
+    def addAttachments(self, att):
+        self.attachments.append(att)
             
           
           
@@ -248,7 +250,7 @@ def rm_dup(lst):
 # ---------------------------------------------------------------------------------
     
 def main():
-    # file = open("Z:\CS 773 Data Mining\Project\sorted-proj-data.csv")
+    # file = open("sorted-proj-data.csv")
     file = open("sorted-proj-data.csv")
     lines = file.readlines()
     
@@ -369,10 +371,10 @@ def main():
             email.addMachine(machine)
             email.addStartTime(start_time)
             email.addEmailProgram(program)
-            email.addBytes(bites)
+            email.addBytes(int(bites))
             email.incCount()
             email.addEmail(em + ":" + sent_rec)
-      
+            email.addAttachments(int(attachments))      
                 
         
     print("Average time worked:")
@@ -629,6 +631,63 @@ def main():
     [print(p) for p in prnts] # prints the printers each user used without duplicates
     
     
+    for email in emails:
+        email.emails = rm_dup(email.emails)
+        print(email.user_id + ": " , end="")
+        print(email.emails)
+    for email in emails:
+        print(email.email_programs)
+    points = []
+    email_sent_times = []
+    for email in emails:
+        l = []
+        l.append(sum(removeOutliers(email.bites)) / len(removeOutliers(email.bites)))
+        l.append(sum(removeOutliers(email.attachments)) / len(removeOutliers(email.attachments)))
+        s = 0
+        start_times_seconds = []
+        for st in email.start_times:
+            tmpdt = datetime.datetime(st.year, st.month, st.day, 0, 0, 0)
+            diff = (st - tmpdt).total_seconds() # gets the time without day, month or year attached
+            start_times_seconds.append(diff)
+            stimes += diff
+            s += 1
+        ll = removeOutliers(start_times_seconds)
+        email_sent_times.append(int(sum(ll) / len(ll)))
+        l.append(int(sum(ll) / len(ll)))
+        points.append(l)
+    points = normalize(points)
+    
+    print("Cluster based on email\n\n\n")
+    
+    refs = [[0,0,0],[1,1,1]]
+    print("k=2\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0],[.5,.5,.5],[1,1,1]]
+    print("k=3\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0],[.3,.3,.3],[.6,.6,.6],[1,1,1]]
+    print("k=4\n")
+    print(k_meansClusterFull(refs, points))
+    
+    refs = [[0,0,0],[.25,.25,.25],[.5,.5,.5],[.75,.75,.75],[1,1,1]]
+    print("k=5\n")
+    print(k_meansClusterFull(refs, points))       
+
+    print("\n\nEmail statistics\n")
+    
+    print("Bites, attachments, time, machines, email programs")
+    
+    i = 0
+    for email in emails:
+        print(email.user_id, end = ": ")
+        print(sum(removeOutliers(email.bites)) / len(removeOutliers(email.bites)), end=", ")
+        print(sum(removeOutliers(email.attachments)) / len(removeOutliers(email.attachments)), end=", ")
+        print(secondsToFormattedTime(email_sent_times[i]), end = ", ")
+        i += 1
+        print(rm_dup(email.machines), end = ", ")
+        print(rm_dup(email.email_programs))
         
     
     
